@@ -615,7 +615,7 @@ function filterLabel(){
 function computeMetrics(records){
   const m = { plan:0, actual:0, targetHrs:0, actualHrs:0, manHoursTarget:0, manHoursActual:0,
               availLossManHr:0, perfLossManHr:0, injury:0, nearMiss:0, count: records.length,
-              planHrsAtOwnTarget:0, planPersonHrsAtOwnTarget:0 };
+              planHrsAtOwnTarget:0 };
   records.forEach(r=>{
     m.plan += r.plan; m.actual += r.actual;
     m.targetHrs += r.targetHrs; m.actualHrs += r.actualHrs;
@@ -623,7 +623,6 @@ function computeMetrics(records){
     m.availLossManHr += (r.availLossManHr||0); m.perfLossManHr += (r.perfLossManHr||0);
     m.injury += (r.injury||0); m.nearMiss += (r.nearMiss||0);
     if(r.uphTarget>0) m.planHrsAtOwnTarget += (r.plan / r.uphTarget);
-    if(r.uphTarget>0) m.planPersonHrsAtOwnTarget += (r.plan * r.manpower / r.uphTarget);
   });
   m.achievementPct = m.plan>0 ? (m.actual/m.plan*100) : 0;
   /* Target UPH: uses each row's own "UPH (Target)" value straight from the
@@ -633,11 +632,7 @@ function computeMetrics(records){
      Actual diverge). A single model/row reproduces its Excel value exactly. */
   m.uphTarget = m.planHrsAtOwnTarget>0 ? (m.plan/m.planHrsAtOwnTarget) : 0;
   m.uphActual = m.actualHrs>0 ? (m.actual/m.actualHrs) : 0;
-  /* Target UPPH: same principle as Target UPH above, just normalised for
-     manpower -- each row's own implied target rate is UPH Target / Manpower,
-     Plan-weighted across rows, instead of pooling Target Hrs x Manpower
-     (which -- same as Target UPH -- is anchored to Actual, not Plan). */
-  m.upphTarget = m.planPersonHrsAtOwnTarget>0 ? (m.plan/m.planPersonHrsAtOwnTarget) : 0;
+  m.upphTarget = m.manHoursTarget>0 ? (m.plan/m.manHoursTarget) : 0;
   m.upphActual = m.manHoursActual>0 ? (m.actual/m.manHoursActual) : 0;
   /* Availability/Performance: same man-hour formulas as the Excel OEE templates —
      Availability = (Actual Man-Hrs - Availability-tagged Loss) / Actual Man-Hrs
@@ -649,8 +644,9 @@ function computeMetrics(records){
   return m;
 }
 function qualityFromReject(actual, rejTotal){
-  if(!actual || actual<=0) return null;
-  return clamp((actual-rejTotal)/actual*100, 0, 100);
+  const total = actual + rejTotal;
+  if(!total || total<=0) return null;
+  return clamp(actual/total*100, 0, 100);
 }
 function aggregateLosses(records){
   const totals = {};
@@ -888,7 +884,7 @@ function renderShopFloor(container){
 
 function renderShopKPIs(records, m, qs, oee){
   const achStatus = pctStatus(m.achievementPct, 90, 75);
-  const rejRate = (qs.hasData && m.actual>0) ? (qs.rejTotal/m.actual*100) : null;
+  const rejRate = (qs.hasData && (m.actual+qs.rejTotal)>0) ? (qs.rejTotal/(m.actual+qs.rejTotal)*100) : null;
   const rejStatus = rejRate!==null ? (rejRate<=3?'good':rejRate<=7?'warn':'bad') : 'na';
   const manpower = sumManpowerDedup(records);
   const days = uniqSorted(records.map(r=>r.date)).length || 1;
@@ -930,7 +926,7 @@ function renderModelWiseTable(dept, records){
     const hasRejData = qs.hasData;
     const quality = qs.quality;
     const oee = quality!==null ? (m.oee2*quality/100) : m.oee2;
-    const rejPct = hasRejData && m.actual>0 ? rejQty/m.actual*100 : null;
+    const rejPct = hasRejData && (m.actual+rejQty)>0 ? rejQty/(m.actual+rejQty)*100 : null;
     return {model, frame, lines, m, manpower, rejQty, rejPct, quality, oee, hasRejData};
   });
 
@@ -974,7 +970,7 @@ function renderShopDeptSummaryTableInto(elId, showCounts){
     const m = computeMetrics(records);
     const qs = qualityForRecords(records);
     const oee = qs.quality!==null ? (m.oee2*qs.quality/100) : m.oee2;
-    const rejPct = qs.hasData && m.actual>0 ? qs.rejTotal/m.actual*100 : null;
+    const rejPct = qs.hasData && (m.actual+qs.rejTotal)>0 ? qs.rejTotal/(m.actual+qs.rejTotal)*100 : null;
     return {label: deptLabel(dept), m, qs, oee, rejPct};
   });
   $(elId).innerHTML = `
@@ -1316,7 +1312,7 @@ function renderLeadership(container){
 
 function renderLeadKPIs(m, qm, oee, records){
   const achStatus = pctStatus(m.achievementPct, 90, 75);
-  const rejRate = (qm.hasData && m.actual>0) ? (qm.rejTotal/m.actual*100) : null;
+  const rejRate = (qm.hasData && (m.actual+qm.rejTotal)>0) ? (qm.rejTotal/(m.actual+qm.rejTotal)*100) : null;
   const rejStatus = rejRate!==null ? (rejRate<=3?'good':rejRate<=7?'warn':'bad') : 'na';
   const manpower = sumManpowerDedup(records);
   const days = uniqSorted(records.map(r=>r.date)).length || 1;
@@ -1351,7 +1347,7 @@ function renderLineWiseTotalTable(dept, records){
     const manpower = sumManpowerDedup(recs) / days;
     const qs = qualityForRecords(recs);
     const oee = qs.quality!==null ? (m.oee2*qs.quality/100) : m.oee2;
-    const rejPct = qs.hasData && m.actual>0 ? qs.rejTotal/m.actual*100 : null;
+    const rejPct = qs.hasData && (m.actual+qs.rejTotal)>0 ? qs.rejTotal/(m.actual+qs.rejTotal)*100 : null;
     return {label, m, manpower, rejPct, oee, quality: qs.quality};
   }
 
@@ -1541,7 +1537,7 @@ function renderDeptReloadChart(){
     const records = filterRecords(dept);
     const actual = records.reduce((s,r)=>s+r.actual,0);
     const qs = qualityForRecords(records);
-    return qs.hasData && actual>0 ? Math.round(qs.rejTotal/actual*1000)/10 : null;
+    return qs.hasData && (actual+qs.rejTotal)>0 ? Math.round(qs.rejTotal/(actual+qs.rejTotal)*1000)/10 : null;
   });
   if(data.every(d=>d===null)){ ctx.parentElement.innerHTML = '<div class="quality-placeholder">No reloading/rejection data logged within the selected range</div>'; return; }
   charts.deptReload = new Chart(ctx, {
@@ -1583,7 +1579,7 @@ function renderLeadObservations(dept, buckets, overallM, overallQ, overallOee, r
   const topLoss = Object.entries(lossTotals).sort((a,b)=>b[1]-a[1])[0];
   if(topLoss) obs.push({icon:'bad', text:`<b>${topLoss[0]}</b> remains the largest cumulative loss driver at <b>${n1(topLoss[1])} man-hrs</b> for the period.`});
   if(overallQ.quality!==null){
-    const rate = overallM.actual>0 ? (overallQ.rejTotal/overallM.actual*100) : 0;
+    const rate = (overallM.actual+overallQ.rejTotal)>0 ? (overallQ.rejTotal/(overallM.actual+overallQ.rejTotal)*100) : 0;
     obs.push({icon: rate<=3?'good':rate<=7?'warn':'bad', text:`Reload rate for the tracked portion of this period is <b>${n1(rate)}%</b>.`});
   } else {
     obs.push({icon:'info', text:'Quality/Reload % unavailable for this period — the reloading/rejection register only recently started being logged.'});
